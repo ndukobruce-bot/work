@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { hashPassword, verifyPassword } from '../src/lib/password';
 import { createSessionToken, verifySessionToken } from '../src/lib/session-token';
 import { walletIsReconciled, ledgerTotals } from '../src/lib/ledger';
+import { getWithdrawalEligibility, WITHDRAWAL_HOLD_DAYS } from '../src/lib/withdrawal-eligibility';
 
 const db = new PrismaClient();
 
@@ -22,6 +23,18 @@ test('signed sessions identify an account and reject tampering', async () => {
   assert.equal(await verifySessionToken(token), true);
   assert.equal(await verifySessionToken(`${token}x`), false);
   assert.equal(await verifySessionToken(null), false);
+});
+
+test('new accounts cannot withdraw before 60 days, and become eligible at the boundary', () => {
+  const createdAt = new Date('2026-01-01T12:00:00.000Z');
+  const before = getWithdrawalEligibility(createdAt, new Date('2026-03-02T11:59:59.999Z'));
+  assert.equal(WITHDRAWAL_HOLD_DAYS, 60);
+  assert.equal(before.eligible, false);
+  assert.equal(before.daysRemaining, 1);
+  const ready = getWithdrawalEligibility(createdAt, new Date('2026-03-02T12:00:00.000Z'));
+  assert.equal(ready.eligible, true);
+  assert.equal(ready.daysRemaining, 0);
+  assert.equal(ready.availableAt.toISOString(), '2026-03-02T12:00:00.000Z');
 });
 
 test('password login rejects invalid credentials', async () => {
