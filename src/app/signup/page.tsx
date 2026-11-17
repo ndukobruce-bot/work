@@ -22,7 +22,9 @@ export default function SignupPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),
       });
-      const data = await response.json();
+      const raw = await response.text();
+      let data: { error?: string } = {};
+      if (raw) { try { data = JSON.parse(raw) as { error?: string }; } catch { throw new Error(response.ok ? 'The server returned an unreadable response.' : `Request failed (${response.status}).`); } }
       if (!response.ok) throw new Error(data.error || 'Could not create your account.');
       router.replace('/account');
       router.refresh();
