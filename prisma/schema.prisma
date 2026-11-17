@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("WORKER")
+  accountStatus String  @default("ACTIVE")
+  authVersion  Int      @default(0)
+  country      String   @default("")
+  avatarUrl    String   @default("https://api.dicebear.com/9.x/initials/svg?seed=Robinson%20McCubbins")
+  level        String   @default("Beginner")
+  rating       Float    @default(0)
+  approvalRate Int      @default(0)
+  verified     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  profile      Profile?
+  assignments  TaskAssignment[]
+  ledger       LedgerEntry[]
+  wallet       Wallet?
+  withdrawals  Withdrawal[]
+  userSkills   UserSkill[]
+  ratings      Rating[]
+  badges       UserBadge[]
+  notifications Notification[]
+  savedTasks    SavedTask[]
+}
+
+model Profile {
+  id       String @id @default(cuid())
+  userId   String @unique
+  bio      String @default("")
+  languages String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Field {
+  id   String @id @default(cuid())
+  name String @unique
+  slug String @unique
+  tasks Task[]
+  skills Skill[]
+}
+
+model Skill {
+  id      String @id @default(cuid())
+  name    String @unique
+  fieldId String
+  field   Field @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  users   UserSkill[]
+}
+
+model UserSkill {
+  id        String @id @default(cuid())
+  userId    String
+  skillId   String
+  verified  Boolean @default(true)
+  level     String @default("Advanced")
+  user      User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill     Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  @@unique([userId, skillId])
+}
+
+model Task {
+  id             String @id @default(cuid())
+  title          String
+  slug           String @unique
+  fieldId        String
+  field          Field @relation(fields: [fieldId], references: [id])
+  description    String
+  rewardCents    Int
+  estimatedHours Float
+  difficulty     String
+  requiredLevel  String @default("Intermediate")
+  deadline       DateTime
+  slots          Int @default(1)
+  format         String @default("PDF")
+  type           String @default("FIXED")
+  status         String @default("AVAILABLE")
+  createdAt      DateTime @default(now())
+  assignments    TaskAssignment[]
+  savedBy        SavedTask[]
+}
+
+model TaskAssignment {
+  id            String @id @default(cuid())
+  userId        String
+  taskId        String
+  status        String @default("IN_PROGRESS")
+  startedAt     DateTime @default(now())
+  submittedAt   DateTime?
+  completedAt   DateTime?
+  earnedCents   Int @default(0)
+  score         Int?
+  feedback      String?
+  submissionUrl String?
+  submissionText String?
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task          Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  @@unique([userId, taskId])
+}
+
+model Wallet {
+  id              String @id @default(cuid())
+  userId          String @unique
+  availableCents  Int @default(0)
+  pendingCents    Int @default(0)
+  withdrawnCents  Int @default(0)
+  lifetimeCents   Int @default(0)
+  currency        String @default("USD")
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model LedgerEntry {
+  id             String @id @default(cuid())
+  userId         String
+  amountCents    Int
+  currency       String @default("USD")
+  type           String
+  description    String
+  idempotencyKey String @unique
+  createdAt      DateTime @default(now())
+  user           User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Withdrawal {
+  id          String @id @default(cuid())
+  userId      String
+  amountCents Int
+  method      String
+  status      String @default("PAID")
+  createdAt   DateTime @default(now())
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Rating {
+  id        String @id @default(cuid())
+  userId    String
+  score     Int
+  comment   String
+  createdAt DateTime @default(now())
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Badge {
+  id    String @id @default(cuid())
+  name  String @unique
+  icon  String
+  users UserBadge[]
+}
+
+model UserBadge {
+  id       String @id @default(cuid())
+  userId   String
+  badgeId  String
+  awardedAt DateTime @default(now())
+  user     User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge    Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  @@unique([userId, badgeId])
+}
+
+model Notification {
+  id        String @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  read      Boolean @default(false)
+  createdAt DateTime @default(now())
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SavedTask {
+  id        String @id @default(cuid())
+  userId    String
+  taskId    String
+  createdAt DateTime @default(now())
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  @@unique([userId, taskId])
+}
