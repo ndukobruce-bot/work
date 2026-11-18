@@ -19,10 +19,11 @@ async function main() {
   const listings = await tasks();
   assert.equal(listings.status, 200);
   assert.equal((await listings.json()).tasks.length, LOCAL_TASKS.length);
-  const detail = await taskDetail(new NextRequest('http://localhost/api/tasks/brief-research'), { params: Promise.resolve({ id: 'brief-research' }) });
+  assert.equal(LOCAL_TASKS.length, 50);
+  const task = LOCAL_TASKS[0];
+  const detail = await taskDetail(new NextRequest(`http://localhost/api/tasks/${task.id}`), { params: Promise.resolve({ id: task.id }) });
   assert.equal(detail.status, 200);
 
-  const task = LOCAL_TASKS[0];
   startLocalTask(task.id);
   toggleSavedTask(task.id, true);
   submitLocalTask(task, 'A detailed research summary with findings and clear recommendations.', true);
