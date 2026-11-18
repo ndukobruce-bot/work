@@ -14,13 +14,22 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [saved, setSaved] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const fields = useMemo(() => [...new Set(tasks.map(task => task.field))], [tasks]);
 
   useEffect(() => {
-    void Promise.all([
-      fetch('/api/tasks').then(r => r.ok ? r.json() : { tasks: [] }).then(data => setTasks(data.tasks ?? [])),
-      fetch('/api/saved').then(r => r.ok ? r.json() : []).then((rows: Saved[]) => setSaved(rows.map(row => row.taskId))),
-    ]).catch(() => {}).finally(() => setLoading(false));
+    void Promise.allSettled([fetch('/api/tasks'), fetch('/api/saved')]).then(async ([taskResult, savedResult]) => {
+      if (taskResult.status === 'fulfilled' && taskResult.value.ok) {
+        const data = await taskResult.value.json();
+        setTasks(data.tasks ?? []);
+      } else {
+        setLoadError(true);
+      }
+      if (savedResult.status === 'fulfilled' && savedResult.value.ok) {
+        const rows: Saved[] = await savedResult.value.json();
+        setSaved(rows.map(row => row.taskId));
+      }
+    }).catch(() => setLoadError(true)).finally(() => setLoading(false));
   }, []);
 
   function toggleSaved(taskId: string) {
@@ -46,7 +55,7 @@ export default function TasksPage() {
       <select className="input" value={level} onChange={e => setLevel(e.target.value)}><option>Any level</option>{['Beginner', 'Intermediate', 'Advanced', 'Expert', 'Elite'].map(value => <option key={value}>{value}</option>)}</select>
     </div>
     <div style={{ display: 'flex', justifyContent: 'space-between', margin: '18px 1px 12px', alignItems: 'center' }}><span className="muted" style={{ fontSize: 13 }}>Showing <b style={{ color: '#18231f' }}>{filtered.length}</b> opportunities</span><select className="input" style={{ width: 175, padding: '9px 12px', fontSize: 12 }} value={sort} onChange={e => setSort(e.target.value)}><option>Recommended</option><option>Highest reward</option><option>Quickest</option></select></div>
-    {loading ? <div className="card" style={{ padding: 24 }}>Loading opportunities…</div> : filtered.length ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 13 }}>{filtered.map(task => <article key={task.id} className="card" style={{ padding: 20, position: 'relative' }}>
+    {loadError ? <div role="alert" className="card" style={{ padding: 24, marginTop: 18 }}><h2 style={{ fontSize: 17, marginTop: 0 }}>Marketplace unavailable</h2><p className="muted" style={{ fontSize: 13 }}>The task database could not be reached. Check the deployment database connection and migrations, then try again.</p><button className="btn light" onClick={() => window.location.reload()}>Try again</button></div> : loading ? <div className="card" style={{ padding: 24 }}>Loading opportunities…</div> : filtered.length ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 13 }}>{filtered.map(task => <article key={task.id} className="card" style={{ padding: 20, position: 'relative' }}>
       <button aria-label={saved.includes(task.id) ? 'Remove saved task' : 'Save task'} onClick={() => toggleSaved(task.id)} style={{ position: 'absolute', right: 17, top: 16, border: 0, background: 'transparent', color: saved.includes(task.id) ? '#1f7a52' : '#87938b' }}><Bookmark size={18} fill={saved.includes(task.id) ? '#1f7a52' : 'none'} /></button>
       <span className="pill">{task.field}</span><Link href={`/tasks/${task.id}`} style={{ textDecoration: 'none', color: 'inherit' }}><h3 style={{ fontSize: 18, margin: '15px 38px 7px 0' }}>{task.title}</h3></Link>
       <p className="muted" style={{ fontSize: 12, lineHeight: 1.6, minHeight: 40, margin: '0 0 15px' }}>{task.description}</p>

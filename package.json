@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
+    "db:deploy": "tsx scripts/db-deploy.ts",
     "test": "tsx --test tests/*.test.ts && tsx tests/login.integration.ts",
     "postinstall": "prisma generate",
     "account:password": "tsx prisma/set-account-password.ts"

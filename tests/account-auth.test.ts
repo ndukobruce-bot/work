@@ -2,13 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
-import { PrismaClient } from '@prisma/client';
 import { hashPassword, verifyPassword } from '../src/lib/password';
 import { createSessionToken, verifySessionToken } from '../src/lib/session-token';
 import { walletIsReconciled, ledgerTotals } from '../src/lib/ledger';
 import { getWithdrawalEligibility, WITHDRAWAL_HOLD_DAYS } from '../src/lib/withdrawal-eligibility';
-
-const db = new PrismaClient();
 
 test('passwords are stored as verifiable salted hashes', async () => {
   const password = `unit-${crypto.randomUUID()}-A9!`;
@@ -50,18 +47,14 @@ test('password login is retired for automatic guest workspaces', async () => {
   assert.equal(response.headers.get('set-cookie'), null);
 });
 
-test('the account resolves by its stored email and wallet totals reconcile', async () => {
-  const user = await db.user.findUnique({
-    where: { email: 'robinsonmccubbins@gmail.com' },
-    include: { wallet: true, ledger: true, assignments: true, withdrawals: true },
-  });
-  assert.ok(user);
-  assert.equal(user.accountStatus, 'ACTIVE');
-  assert.ok(user.wallet);
-  const view = { wallet: user.wallet, ledger: user.ledger, assignments: user.assignments, withdrawals: user.withdrawals };
+test('a guest wallet reconciles earnings, pending work, and withdrawals', () => {
+  const view = {
+    wallet: { availableCents: 7500, pendingCents: 5000, withdrawnCents: 2500, lifetimeCents: 10000 },
+    ledger: [{ amountCents: 10000, type: 'EARNING' }, { amountCents: -2500, type: 'WITHDRAWAL' }],
+    assignments: [{ status: 'PAID', earnedCents: 10000 }, { status: 'UNDER_REVIEW', earnedCents: 5000 }],
+    withdrawals: [{ amountCents: 2500, status: 'PAID' }],
+  };
   assert.equal(walletIsReconciled(view), true);
   const totals = ledgerTotals(view);
-  assert.equal(totals.lifetimeCents, user.assignments.filter(x => x.status === 'PAID').reduce((sum, x) => sum + x.earnedCents, 0));
+  assert.deepEqual(totals, { availableCents: 7500, lifetimeCents: 10000, pendingCents: 5000, withdrawnCents: 2500 });
 });
-
-test.after(async () => { await db.$disconnect(); });

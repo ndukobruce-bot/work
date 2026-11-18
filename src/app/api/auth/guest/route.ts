@@ -7,13 +7,19 @@ import { createSession, SESSION_COOKIE } from '@/lib/auth-session';
 export const runtime = 'nodejs';
 const creationsByIp = new Map<string, { startedAt: number; count: number }>();
 
+function setupRedirect(request: NextRequest, reason: 'session' | 'database') {
+  const url = new URL('/workspace-unavailable', request.url);
+  url.searchParams.set('reason', reason);
+  return NextResponse.redirect(url);
+}
+
 export async function GET(request: NextRequest) {
   const next = request.nextUrl.searchParams.get('next') || '/';
   const destination = next.startsWith('/') && !next.startsWith('//') && !next.includes('\\') ? next : '/';
   const currentCookie = request.cookies.get(SESSION_COOKIE)?.value;
 
   if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
-    return NextResponse.json({ error: 'Guest workspaces are not configured on this deployment.' }, { status: 503 });
+    return setupRedirect(request, 'session');
   }
 
   try {
@@ -64,6 +70,6 @@ export async function GET(request: NextRequest) {
     });
     return response;
   } catch {
-    return NextResponse.json({ error: 'Could not start a guest workspace. Please try again.' }, { status: 503 });
+    return setupRedirect(request, 'database');
   }
 }

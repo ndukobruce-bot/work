@@ -1,18 +1,30 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { copyFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+const require = createRequire(import.meta.url);
 
 async function main() {
   process.env.DATABASE_URL = 'file:./auth-integration.db';
   process.env.SESSION_SECRET = randomBytes(48).toString('base64url');
   const databaseFile = join(process.cwd(), 'prisma/auth-integration.db');
-  copyFileSync(join(process.cwd(), 'prisma/dev.db'), databaseFile);
+  rmSync(databaseFile, { force: true });
+  writeFileSync(databaseFile, new Uint8Array());
+  execFileSync(process.execPath, [require.resolve('prisma/build/index.js'), 'migrate', 'deploy'], {
+    cwd: process.cwd(),
+    env: { ...process.env, DATABASE_URL: 'file:./auth-integration.db' },
+    stdio: 'pipe',
+  });
 
   const { PrismaClient } = await import('@prisma/client');
   const { GET: createGuest } = await import('../src/app/api/auth/guest/route');
   const { POST: login } = await import('../src/app/api/auth/login/route');
   const { POST: register } = await import('../src/app/api/auth/register/route');
+  const { GET: health } = await import('../src/app/api/health/route');
+  const { GET: tasks } = await import('../src/app/api/tasks/route');
   const { prisma: authDb } = await import('../src/lib/prisma');
   const { middleware } = await import('../src/middleware');
   const { readSessionToken } = await import('../src/lib/session-token');
@@ -20,6 +32,20 @@ async function main() {
   const db = new PrismaClient();
 
   try {
+    const signingSecret = process.env.SESSION_SECRET;
+    delete process.env.SESSION_SECRET;
+    const missingConfig = await createGuest(new NextRequest('http://localhost:3000/api/auth/guest?next=%2F'));
+    assert.equal(missingConfig.status, 307);
+    assert.match(missingConfig.headers.get('location') || '', /\/workspace-unavailable\?reason=session/);
+    process.env.SESSION_SECRET = signingSecret;
+
+    const ready = await health();
+    assert.equal(ready.status, 200);
+    assert.deepEqual(await ready.json(), { ok: true, services: { guestSessions: 'ready', database: 'ready' } });
+    const taskResponse = await tasks();
+    assert.equal(taskResponse.status, 200);
+    assert.deepEqual(await taskResponse.json(), { tasks: [], fields: [] });
+
     const firstVisit = await middleware(new NextRequest('http://localhost:3000/tasks'));
     assert.equal(firstVisit.status, 307);
     assert.match(firstVisit.headers.get('location') || '', /\/api\/auth\/guest\?next=%2Ftasks/);
@@ -44,6 +70,8 @@ async function main() {
 
     const allowed = await middleware(new NextRequest('http://localhost:3000/account', { headers: { cookie: cookie! } }));
     assert.equal(allowed.headers.get('x-middleware-next'), '1');
+    const setupPage = await middleware(new NextRequest('http://localhost:3000/workspace-unavailable?reason=database'));
+    assert.equal(setupPage.headers.get('x-middleware-next'), '1');
 
     const beforeRepeat = await db.user.count({ where: { role: 'GUEST' } });
     const repeatVisit = await createGuest(new NextRequest('http://localhost:3000/api/auth/guest?next=%2Faccount', { headers: { cookie: cookie! } }));
@@ -55,7 +83,7 @@ async function main() {
     const registerDisabled = await register(new NextRequest('http://localhost:3000/api/auth/register', { method: 'POST' }));
     assert.equal(loginDisabled.status, 410);
     assert.equal(registerDisabled.status, 410);
-    console.log('Automatic guest workspace, zero-balance initialization, and protected-route integration passed.');
+    console.log('Automatic guest workspace, setup handling, health check, marketplace response, and protected-route integration passed.');
   } finally {
     await authDb.$disconnect();
     await db.$disconnect();

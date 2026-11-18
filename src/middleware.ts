@@ -7,6 +7,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (pathname.startsWith('/_next') || pathname === '/favicon.ico') return NextResponse.next();
   if (pathname === '/login' || pathname === '/signup') return NextResponse.redirect(new URL('/', request.url));
+  if (pathname === '/workspace-unavailable') return NextResponse.next();
   if (openPaths.includes(pathname)) return NextResponse.next();
   if (await verifySessionToken(request.cookies.get('workvault_session')?.value)) return NextResponse.next();
   if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
