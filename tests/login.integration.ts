@@ -1,95 +1,38 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-const require = createRequire(import.meta.url);
 
 async function main() {
-  process.env.DATABASE_URL = 'file:./auth-integration.db';
-  process.env.SESSION_SECRET = randomBytes(48).toString('base64url');
-  const databaseFile = join(process.cwd(), 'prisma/auth-integration.db');
-  rmSync(databaseFile, { force: true });
-  writeFileSync(databaseFile, new Uint8Array());
-  execFileSync(process.execPath, [require.resolve('prisma/build/index.js'), 'migrate', 'deploy'], {
-    cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: 'file:./auth-integration.db' },
-    stdio: 'pipe',
+  const storage = new Map<string, string>();
+  Object.assign(globalThis, {
+    window: {},
+    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
   });
-
-  const { PrismaClient } = await import('@prisma/client');
-  const { GET: createGuest } = await import('../src/app/api/auth/guest/route');
-  const { POST: login } = await import('../src/app/api/auth/login/route');
-  const { POST: register } = await import('../src/app/api/auth/register/route');
+  const { LOCAL_TASKS } = await import('../src/lib/local-tasks');
+  const { readGuestData, startLocalTask, submitLocalTask, toggleSavedTask, localAccount } = await import('../src/lib/guest-workspace');
   const { GET: health } = await import('../src/app/api/health/route');
   const { GET: tasks } = await import('../src/app/api/tasks/route');
-  const { prisma: authDb } = await import('../src/lib/prisma');
-  const { middleware } = await import('../src/middleware');
-  const { readSessionToken } = await import('../src/lib/session-token');
+  const { GET: taskDetail } = await import('../src/app/api/tasks/[id]/route');
   const { NextRequest } = await import('next/server');
-  const db = new PrismaClient();
 
-  try {
-    const signingSecret = process.env.SESSION_SECRET;
-    delete process.env.SESSION_SECRET;
-    const missingConfig = await createGuest(new NextRequest('http://localhost:3000/api/auth/guest?next=%2F'));
-    assert.equal(missingConfig.status, 307);
-    assert.match(missingConfig.headers.get('location') || '', /\/workspace-unavailable\?reason=session/);
-    process.env.SESSION_SECRET = signingSecret;
+  const status = await health();
+  assert.equal(status.status, 200);
+  assert.deepEqual(await status.json(), { ok: true, mode: 'browser-local', persistence: 'this-browser-only' });
+  const listings = await tasks();
+  assert.equal(listings.status, 200);
+  assert.equal((await listings.json()).tasks.length, LOCAL_TASKS.length);
+  const detail = await taskDetail(new NextRequest('http://localhost/api/tasks/brief-research'), { params: Promise.resolve({ id: 'brief-research' }) });
+  assert.equal(detail.status, 200);
 
-    const ready = await health();
-    assert.equal(ready.status, 200);
-    assert.deepEqual(await ready.json(), { ok: true, services: { guestSessions: 'ready', database: 'ready' } });
-    const taskResponse = await tasks();
-    assert.equal(taskResponse.status, 200);
-    assert.deepEqual(await taskResponse.json(), { tasks: [], fields: [] });
-
-    const firstVisit = await middleware(new NextRequest('http://localhost:3000/tasks'));
-    assert.equal(firstVisit.status, 307);
-    assert.match(firstVisit.headers.get('location') || '', /\/api\/auth\/guest\?next=%2Ftasks/);
-
-    const guestResponse = await createGuest(new NextRequest('http://localhost:3000/api/auth/guest?next=%2Ftasks'));
-    assert.equal(guestResponse.status, 307);
-    assert.equal(guestResponse.headers.get('location'), 'http://localhost:3000/tasks');
-    const cookie = guestResponse.headers.get('set-cookie')?.split(';')[0];
-    assert.ok(cookie?.startsWith('workvault_session='));
-    const token = cookie!.slice('workvault_session='.length);
-    const claims = await readSessionToken(token);
-    assert.ok(claims);
-
-    const guest = await db.user.findUnique({ where: { id: claims!.userId }, include: { profile: true, wallet: true } });
-    assert.equal(guest?.role, 'GUEST');
-    assert.equal(guest?.accountStatus, 'ACTIVE');
-    assert.ok(guest?.profile);
-    assert.equal(guest?.wallet?.availableCents, 0);
-    assert.equal(guest?.wallet?.pendingCents, 0);
-    assert.equal(guest?.wallet?.withdrawnCents, 0);
-    assert.equal(guest?.wallet?.lifetimeCents, 0);
-
-    const allowed = await middleware(new NextRequest('http://localhost:3000/account', { headers: { cookie: cookie! } }));
-    assert.equal(allowed.headers.get('x-middleware-next'), '1');
-    const setupPage = await middleware(new NextRequest('http://localhost:3000/workspace-unavailable?reason=database'));
-    assert.equal(setupPage.headers.get('x-middleware-next'), '1');
-
-    const beforeRepeat = await db.user.count({ where: { role: 'GUEST' } });
-    const repeatVisit = await createGuest(new NextRequest('http://localhost:3000/api/auth/guest?next=%2Faccount', { headers: { cookie: cookie! } }));
-    assert.equal(repeatVisit.headers.get('location'), 'http://localhost:3000/account');
-    assert.equal(repeatVisit.headers.get('set-cookie'), null);
-    assert.equal(await db.user.count({ where: { role: 'GUEST' } }), beforeRepeat);
-
-    const loginDisabled = await login(new NextRequest('http://localhost:3000/api/auth/login', { method: 'POST' }));
-    const registerDisabled = await register(new NextRequest('http://localhost:3000/api/auth/register', { method: 'POST' }));
-    assert.equal(loginDisabled.status, 410);
-    assert.equal(registerDisabled.status, 410);
-    console.log('Automatic guest workspace, setup handling, health check, marketplace response, and protected-route integration passed.');
-  } finally {
-    await authDb.$disconnect();
-    await db.$disconnect();
-    rmSync(databaseFile, { force: true });
-    rmSync(`${databaseFile}-journal`, { force: true });
-  }
+  const task = LOCAL_TASKS[0];
+  startLocalTask(task.id);
+  toggleSavedTask(task.id, true);
+  submitLocalTask(task, 'A detailed research summary with findings and clear recommendations.', true);
+  const account = localAccount();
+  assert.equal(account.assignments[0].status, 'UNDER_REVIEW');
+  assert.equal(account.wallet.pendingCents, Math.round(task.rewardCents * 0.9));
+  assert.equal(account.wallet.availableCents, 0);
+  assert.equal(readGuestData().savedTaskIds[0], task.id);
+  assert.equal(readGuestData().assignments[0].text, 'A detailed research summary with findings and clear recommendations.');
+  console.log('Browser-local access, marketplace, task submission, and wallet accounting passed without deployment secrets or database access.');
 }
 
 void main();

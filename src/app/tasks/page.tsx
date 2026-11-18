@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Search, SlidersHorizontal, Clock3, Bookmark, BriefcaseBusiness } from 'lucide-react';
 import { money, type Task } from '@/lib/data';
+import { readGuestData, toggleSavedTask } from '@/lib/guest-workspace';
 
 type Saved = { taskId: string };
 
@@ -18,26 +19,22 @@ export default function TasksPage() {
   const fields = useMemo(() => [...new Set(tasks.map(task => task.field))], [tasks]);
 
   useEffect(() => {
-    void Promise.allSettled([fetch('/api/tasks'), fetch('/api/saved')]).then(async ([taskResult, savedResult]) => {
-      if (taskResult.status === 'fulfilled' && taskResult.value.ok) {
-        const data = await taskResult.value.json();
+    void fetch('/api/tasks').then(async response => {
+      if (response.ok) {
+        const data = await response.json();
         setTasks(data.tasks ?? []);
       } else {
         setLoadError(true);
       }
-      if (savedResult.status === 'fulfilled' && savedResult.value.ok) {
-        const rows: Saved[] = await savedResult.value.json();
-        setSaved(rows.map(row => row.taskId));
-      }
+      setSaved(readGuestData().savedTaskIds);
     }).catch(() => setLoadError(true)).finally(() => setLoading(false));
   }, []);
 
   function toggleSaved(taskId: string) {
     const isSaved = saved.includes(taskId);
     setSaved(current => isSaved ? current.filter(id => id !== taskId) : [...current, taskId]);
-    void fetch('/api/saved', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId, saved: !isSaved }) })
-      .then(response => { if (!response.ok) throw new Error('Save failed'); })
-      .catch(() => setSaved(current => isSaved ? [...current, taskId] : current.filter(id => id !== taskId)));
+    toggleSavedTask(taskId, !isSaved);
+    window.dispatchEvent(new Event('workvault-local-update'));
   }
 
   const filtered = useMemo(() => tasks

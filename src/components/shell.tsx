@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { BriefcaseBusiness, Wallet, LayoutDashboard, Bookmark, Search, Bell } from 'lucide-react';
+import { useGuestName } from '@/lib/use-guest-name';
 
 const nav = [
   ['Overview', '/account', LayoutDashboard],
@@ -13,20 +13,9 @@ const nav = [
   ['Wallet', '/wallet', Wallet],
 ] as const;
 
-type GuestAccount = { name?: string };
-
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
-  const [account, setAccount] = useState<GuestAccount | null>(null);
-
-  useEffect(() => {
-    void fetch('/api/account')
-      .then(response => response.ok ? response.json() : null)
-      .then(setAccount)
-      .catch(() => {});
-  }, []);
-
-  const displayName = account?.name || 'Guest workspace';
+  const displayName = useGuestName();
   const initials = displayName.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
 
   return <>
