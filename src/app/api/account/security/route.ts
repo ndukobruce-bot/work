@@ -7,6 +7,7 @@ import { createSession, SESSION_COOKIE } from '@/lib/auth-session';
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Not signed in.' }, { status: 401 });
+  if (user.role === 'GUEST') return NextResponse.json({ error: 'Guest workspaces do not have sign-in credentials.' }, { status: 403 });
   let body: { currentPassword?: string; newEmail?: string; newPassword?: string };
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid request.' }, { status: 400 }); }
   const newEmail = body.newEmail?.trim().toLowerCase();

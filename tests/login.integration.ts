@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { copyFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -10,63 +10,53 @@ async function main() {
   copyFileSync(join(process.cwd(), 'prisma/dev.db'), databaseFile);
 
   const { PrismaClient } = await import('@prisma/client');
-  const { hashPassword } = await import('../src/lib/password');
-  const { POST } = await import('../src/app/api/auth/login/route');
+  const { GET: createGuest } = await import('../src/app/api/auth/guest/route');
+  const { POST: login } = await import('../src/app/api/auth/login/route');
   const { POST: register } = await import('../src/app/api/auth/register/route');
   const { prisma: authDb } = await import('../src/lib/prisma');
   const { middleware } = await import('../src/middleware');
+  const { readSessionToken } = await import('../src/lib/session-token');
   const { NextRequest } = await import('next/server');
   const db = new PrismaClient();
-  const email = `auth-check-${randomUUID()}@example.invalid`;
-  const password = randomBytes(30).toString('base64url');
-  const newEmail = `signup-check-${randomUUID()}@example.invalid`;
-  const newPassword = randomBytes(30).toString('base64url');
 
   try {
-    await db.user.create({ data: { email, passwordHash: await hashPassword(password), name: 'Authentication check' } });
-    const login = await POST(new NextRequest('http://localhost:3000/api/auth/login', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }),
-    }));
-    assert.equal(login.status, 200);
-    const cookie = login.headers.get('set-cookie');
-    assert.ok(cookie?.includes('workvault_session='));
+    const firstVisit = await middleware(new NextRequest('http://localhost:3000/tasks'));
+    assert.equal(firstVisit.status, 307);
+    assert.match(firstVisit.headers.get('location') || '', /\/api\/auth\/guest\?next=%2Ftasks/);
 
-    const route = await middleware(new NextRequest('http://localhost:3000/account', { headers: { cookie: cookie!.split(';')[0] } }));
-    assert.equal(route.headers.get('x-middleware-next'), '1');
+    const guestResponse = await createGuest(new NextRequest('http://localhost:3000/api/auth/guest?next=%2Ftasks'));
+    assert.equal(guestResponse.status, 307);
+    assert.equal(guestResponse.headers.get('location'), 'http://localhost:3000/tasks');
+    const cookie = guestResponse.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(cookie?.startsWith('workvault_session='));
+    const token = cookie!.slice('workvault_session='.length);
+    const claims = await readSessionToken(token);
+    assert.ok(claims);
 
-    const denied = await middleware(new NextRequest('http://localhost:3000/account'));
-    assert.equal(denied.status, 307);
-    assert.equal(denied.headers.get('location')?.includes('/login?next=%2Faccount'), true);
-    const deniedApi = await middleware(new NextRequest('http://localhost:3000/api/account'));
-    assert.equal(deniedApi.status, 401);
+    const guest = await db.user.findUnique({ where: { id: claims!.userId }, include: { profile: true, wallet: true } });
+    assert.equal(guest?.role, 'GUEST');
+    assert.equal(guest?.accountStatus, 'ACTIVE');
+    assert.ok(guest?.profile);
+    assert.equal(guest?.wallet?.availableCents, 0);
+    assert.equal(guest?.wallet?.pendingCents, 0);
+    assert.equal(guest?.wallet?.withdrawnCents, 0);
+    assert.equal(guest?.wallet?.lifetimeCents, 0);
 
-    const wrong = await POST(new NextRequest('http://localhost:3000/api/auth/login', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'wrong-password' }),
-    }));
-    assert.equal(wrong.status, 401);
-    assert.equal(wrong.headers.get('set-cookie'), null);
+    const allowed = await middleware(new NextRequest('http://localhost:3000/account', { headers: { cookie: cookie! } }));
+    assert.equal(allowed.headers.get('x-middleware-next'), '1');
 
-    const registrationBody = { name: 'New Worker', email: newEmail, password: newPassword };
-    const registered = await register(new NextRequest('http://localhost:3000/api/auth/register', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(registrationBody),
-    }));
-    assert.equal(registered.status, 201);
-    assert.ok(registered.headers.get('set-cookie')?.includes('workvault_session='));
-    const newUser = await db.user.findUnique({ where: { email: newEmail }, include: { profile: true, wallet: true } });
-    assert.ok(newUser?.profile);
-    assert.equal(newUser?.accountStatus, 'ACTIVE');
-    assert.equal(newUser?.verified, false);
-    assert.equal(await (await import('../src/lib/password')).verifyPassword(newPassword, newUser!.passwordHash), true);
-    assert.equal(newUser?.wallet?.availableCents, 0);
+    const beforeRepeat = await db.user.count({ where: { role: 'GUEST' } });
+    const repeatVisit = await createGuest(new NextRequest('http://localhost:3000/api/auth/guest?next=%2Faccount', { headers: { cookie: cookie! } }));
+    assert.equal(repeatVisit.headers.get('location'), 'http://localhost:3000/account');
+    assert.equal(repeatVisit.headers.get('set-cookie'), null);
+    assert.equal(await db.user.count({ where: { role: 'GUEST' } }), beforeRepeat);
 
-    const duplicate = await register(new NextRequest('http://localhost:3000/api/auth/register', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(registrationBody),
-    }));
-    assert.equal(duplicate.status, 409);
-    console.log('Password login, registration, and protected-route integration passed.');
+    const loginDisabled = await login(new NextRequest('http://localhost:3000/api/auth/login', { method: 'POST' }));
+    const registerDisabled = await register(new NextRequest('http://localhost:3000/api/auth/register', { method: 'POST' }));
+    assert.equal(loginDisabled.status, 410);
+    assert.equal(registerDisabled.status, 410);
+    console.log('Automatic guest workspace, zero-balance initialization, and protected-route integration passed.');
   } finally {
-    await db.user.deleteMany({ where: { email } });
-    await db.user.deleteMany({ where: { email: newEmail } });
     await authDb.$disconnect();
     await db.$disconnect();
     rmSync(databaseFile, { force: true });

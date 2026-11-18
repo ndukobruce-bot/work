@@ -37,7 +37,7 @@ test('new accounts cannot withdraw before 60 days, and become eligible at the bo
   assert.equal(ready.availableAt.toISOString(), '2026-03-02T12:00:00.000Z');
 });
 
-test('password login rejects invalid credentials', async () => {
+test('password login is retired for automatic guest workspaces', async () => {
   const { POST } = await import('../src/app/api/auth/login/route');
   const { NextRequest } = await import('next/server');
   const request = new NextRequest('http://localhost:3000/api/auth/login', {
@@ -46,7 +46,7 @@ test('password login rejects invalid credentials', async () => {
     body: JSON.stringify({ email: 'robinsonmccubbins@gmail.com', password: 'wrong-password' }),
   });
   const response = await POST(request);
-  assert.equal(response.status, 401);
+  assert.equal(response.status, 410);
   assert.equal(response.headers.get('set-cookie'), null);
 });
 

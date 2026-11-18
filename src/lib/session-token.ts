@@ -1,4 +1,4 @@
-const SESSION_TTL_SECONDS = 60 * 60 * 12;
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 365;
 
 function sessionKey() {
   const secret = process.env.SESSION_SECRET;
@@ -19,7 +19,7 @@ function decode(value: string) {
 }
 
 export async function createSessionToken(userId: string, version = 0) {
-  const payload = encode(JSON.stringify({ sub: userId, ver: version, exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS }));
+  const payload = encode(JSON.stringify({ sub: userId, ver: version, mode: 'guest', exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS }));
   const key = await crypto.subtle.importKey('raw', sessionKey(), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
   return `${payload}.${encode(new Uint8Array(signature))}`;
@@ -33,9 +33,9 @@ export async function readSessionToken(token?: string | null) {
     const key = await crypto.subtle.importKey('raw', sessionKey(), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
     const valid = await crypto.subtle.verify('HMAC', key, decode(signature), new TextEncoder().encode(payload));
     if (!valid) return null;
-    const claims = JSON.parse(new TextDecoder().decode(decode(payload))) as { sub?: unknown; ver?: unknown; exp?: unknown };
-    if (typeof claims.sub !== 'string' || typeof claims.ver !== 'number' || typeof claims.exp !== 'number' || claims.exp <= Math.floor(Date.now() / 1000)) return null;
-    return { userId: claims.sub, version: claims.ver };
+    const claims = JSON.parse(new TextDecoder().decode(decode(payload))) as { sub?: unknown; ver?: unknown; mode?: unknown; exp?: unknown };
+    if (typeof claims.sub !== 'string' || typeof claims.ver !== 'number' || claims.mode !== 'guest' || typeof claims.exp !== 'number' || claims.exp <= Math.floor(Date.now() / 1000)) return null;
+    return { userId: claims.sub, version: claims.ver, mode: 'guest' as const };
   } catch {
     return null;
   }

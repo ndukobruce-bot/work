@@ -1,8 +1,8 @@
 'use client';
 import {Suspense,useEffect,useMemo,useState} from 'react';import {useSearchParams} from 'next/navigation';import Link from 'next/link';
-import {ArrowUpRight,CheckCircle2,ChevronRight,Download,FileText,Search,ShieldCheck,Star,TrendingUp,Wallet as WalletIcon,BriefcaseBusiness,UserRound,Settings,Clock3,Bell,LockKeyhole} from 'lucide-react';
+import {ArrowUpRight,CheckCircle2,ChevronRight,Download,FileText,Search,ShieldCheck,Star,TrendingUp,Wallet as WalletIcon,BriefcaseBusiness,UserRound,Clock3,Bell} from 'lucide-react';
 import {money} from '@/lib/data';
-const tabs=['Overview','Completed tasks','In progress','Wallet','Profile & skills','Reviews','Settings'];const icons=[TrendingUp,CheckCircle2,BriefcaseBusiness,WalletIcon,UserRound,Star,Settings];
+const tabs=['Overview','Completed tasks','In progress','Wallet','Profile & skills','Reviews'];const icons=[TrendingUp,CheckCircle2,BriefcaseBusiness,WalletIcon,UserRound,Star];
 type CompletedRow={slug:string;title:string;field:string;date:string;earned:number;score:number;feedback:string};
 type Live={name:string;email:string;country:string;avatarUrl:string;bio:string;languages:string[];level:string;rating:number;approvalRate:number;verified:boolean;wallet:{availableCents:number;pendingCents:number;withdrawnCents:number;lifetimeCents:number};ledger:{id:string;amountCents:number;type:string;description:string;createdAt:string}[];withdrawals:{id:string;amountCents:number;method:string;status:string;createdAt:string}[];assignments:{status:string;submittedAt:string|null;completedAt:string|null;startedAt:string;earnedCents:number;score:number|null;feedback:string|null;task:{id:string;slug:string;title:string;rewardCents:number;field:{name:string}}}[];skills:{skill:{name:string};level:string;verified:boolean}[];badges:{badge:{name:string;icon:string}}[];ratings:{score:number;comment:string;createdAt:string}[];notifications:{title:string;body:string;read:boolean;createdAt:string}[]};
 const defaultWallet={availableCents:0,pendingCents:0,withdrawnCents:0,lifetimeCents:0};
